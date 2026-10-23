@@ -1,0 +1,135 @@
+version: "2"
+
+run:
+  go: "1.27"
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - contextcheck
+    - depguard
+    - errname
+    - errorlint
+    - exhaustive
+    - fatcontext
+    - forbidigo
+    - gocritic
+    - gosec
+    - intrange
+    - nilerr
+    - noctx
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - testifylint
+    - usestdlibvars
+  settings:
+    forbidigo:
+      forbid:
+        - pattern: ^time\.Now$
+          msg: take a clock (internal/kit/clock) instead of reading wall time
+        - pattern: ^os\.(Getenv|LookupEnv|Environ)$
+          msg: read the environment only in internal/kit/config and cmd
+        - pattern: ^fmt\.Print(f|ln)?$
+          msg: write to an injected io.Writer or the logger
+        - pattern: ^huma\.Register$
+          msg: register operations with httpx.Register so the body cap and metadata checks apply
+        - pattern: ^db\.DB\.SQL$
+          pkg: ^github\.com/PuckxPuck/keel/internal/kit/db$
+          msg: the raw pool skips transactions and their hooks; use db.InTx
+        - pattern: ^db\.(OnBegin|BeforeCommit)$
+          pkg: ^github\.com/PuckxPuck/keel/internal/kit/db$
+          msg: transaction hooks belong to internal/kit/tenancy (D30)
+        - pattern: ^db\.WithTenant$
+          pkg: ^github\.com/PuckxPuck/keel/internal/kit/db$
+          msg: modules take the tenant the request resolved; only kit code and internal/app set one
+        # part:tenancy
+        - pattern: ^tenancy\.WithTenant$
+          pkg: ^github\.com/PuckxPuck/keel/internal/kit/tenancy$
+          msg: this switches tenant; only kit/db, kit/tenancy, kit/apikeys and internal/app/tenancy.go or apikeys.go may
+        # /part:tenancy
+        # part:apikeys
+        - pattern: ^apikeys\.TenantTx$
+          pkg: ^github\.com/PuckxPuck/keel/internal/kit/apikeys$
+          msg: this switches tenant; only kit/db, kit/tenancy, kit/apikeys and internal/app/tenancy.go or apikeys.go may
+        # /part:apikeys
+      analyze-types: true
+    depguard:
+      rules:
+        banned:
+          list-mode: lax
+          deny:
+            - pkg: unsafe
+              desc: no unsafe anywhere
+            - pkg: github.com/pkg/errors
+              desc: use the standard errors package
+            - pkg: io/ioutil
+              desc: deprecated, use io and os
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: empty-block
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: range
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: superfluous-else
+        - name: time-naming
+        - name: unexported-return
+        - name: unreachable-code
+        - name: unused-parameter
+        - name: var-declaration
+        - name: var-naming
+  exclusions:
+    generated: strict
+    rules:
+      - path: ^internal/kit/clock/
+        linters: [forbidigo]
+        text: time\.Now
+      - path: ^(internal/kit/config|cmd)/
+        linters: [forbidigo]
+        text: os\.(Getenv|LookupEnv|Environ)
+      - path: ^cmd/
+        linters: [forbidigo]
+        text: fmt\.Print
+      - path: (^internal/kit/httpx/|_test\.go$)
+        linters: [forbidigo]
+        text: huma\.Register
+      - path: (^internal/kit/|^cmd/|_test\.go$)
+        linters: [forbidigo]
+        text: the raw pool skips transactions
+      - path: (^internal/kit/(db|tenancy)/|_test\.go$)
+        linters: [forbidigo]
+        text: transaction hooks belong to
+      - path: (^internal/kit/|^internal/app/tenancy(_off)?\.go$|^cmd/|_test\.go$)
+        linters: [forbidigo]
+        text: modules take the tenant the request resolved
+      - path: (^internal/kit/(db|tenancy|apikeys)/|^internal/app/(tenancy|apikeys)\.go$|_test\.go$)
+        linters: [forbidigo]
+        text: this switches tenant
+      # An off twin keeps the hooks other parts call, and a removed part leaves its empty wiring.
+      - path: ^internal/app/[a-z]+_off\.go$
+        linters: [unused]
+      - path: ^internal/app/wiring\.go$
+        linters: [unused]
+        text: field [a-z]+Wiring is unused
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/PuckxPuck/keel
+  exclusions:
+    generated: strict

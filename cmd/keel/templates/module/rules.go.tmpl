@@ -1,0 +1,34 @@
+package {%.Module%}
+
+import (
+	"strings"
+	"unicode/utf8"
+)
+
+const maxName = 200
+
+// FieldError is one broken rule on one input field.
+type FieldError struct {
+	Field   string
+	Code    string
+	Message string
+}
+
+// InvalidError lists every field that breaks a rule.
+type InvalidError struct {
+	Fields []FieldError
+}
+
+func (e *InvalidError) Error() string { return "the {%.Var%} is not valid" }
+
+// cleanName trims a name and refuses one that is blank or longer than maxName characters.
+func cleanName(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	switch {
+	case name == "":
+		return "", &InvalidError{Fields: []FieldError{{Field: "name", Code: "required", Message: "must not be blank"}}}
+	case utf8.RuneCountInString(name) > maxName:
+		return "", &InvalidError{Fields: []FieldError{{Field: "name", Code: "too_long", Message: "must be at most 200 characters"}}}
+	}
+	return name, nil
+}

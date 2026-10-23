@@ -1,0 +1,5 @@
+{{define "subject"}}A webhook endpoint was turned off{{end}}{{define "content"}}Hello {{.Name}},
+
+Deliveries to the webhook endpoint {{.URL}} kept failing, so it has been turned off. Fix the receiver,
+then turn the endpoint back on; events from while it was off are not sent.
+{{end}}

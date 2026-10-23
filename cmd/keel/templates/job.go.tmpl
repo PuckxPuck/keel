@@ -1,0 +1,19 @@
+package {%.Module%}
+
+import (
+	"context"
+
+	"{%.ModPath%}/internal/kit/jobs"
+	"{%.ModPath%}/internal/kit/logx"
+)
+
+const Kind{%.Kind%} = "{%.Module%}.{%.KindName%}"
+
+// {%.Kind%}Payload is what a Kind{%.Kind%} job carries: ids, not records, and no personal data.
+type {%.Kind%}Payload struct{}
+
+// {%.Func%} runs a Kind{%.Kind%} job. It must be idempotent: a job can run again after a crash or a lost lease.
+func (m *Module) {%.Func%}(ctx context.Context, job jobs.Job, _ {%.Kind%}Payload) error {
+	logx.From(ctx).Info("job ran", "kind", job.Kind, "attempt", job.Attempt)
+	return nil
+}

@@ -1,0 +1,13 @@
+package {%.Module%}
+
+import "{%.ModPath%}/internal/kit/rbac"
+
+const (
+	PermRead  rbac.Code = "{%.Module%}.read"
+	PermWrite rbac.Code = "{%.Module%}.write"
+)
+
+var permissions = []rbac.Perm{
+	{Code: PermRead, Area: "{%.Title%}", Label: "See {%.Module%}", Description: "List and open {%.Module%}"},
+	{Code: PermWrite, Area: "{%.Title%}", Label: "Change {%.Module%}", Description: "Create, edit and delete {%.Module%}"},
+}

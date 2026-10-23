@@ -1,0 +1,76 @@
+package {%.Module%}_test
+
+import (
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"regexp"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"{%.ModPath%}/internal/app"
+	"{%.ModPath%}/internal/kit/auth/realm"
+	"{%.ModPath%}/internal/kit/httpx"
+	"{%.ModPath%}/internal/kit/ids"
+	"{%.ModPath%}/internal/kit/logx"
+	"{%.ModPath%}/internal/kit/rbac"
+	"{%.ModPath%}/internal/kit/users"
+	"{%.ModPath%}/internal/modules/{%.Module%}"
+)
+
+var pathParam = regexp.MustCompile(`\{[^}]+\}`)
+
+// Through the app: reads need {%.Module%}.read and writes {%.Module%}.write, so holding only read changes
+// nothing. Without a database an allowed call reaches the handler and answers 503.
+func TestOperations_NeedReadOrWrite(t *testing.T) {
+	cfg, err := app.LoadConfig([]string{
+		"APP_ENV=test", "APP_PUBLIC_URL=http://localhost:8080",
+		"APP_SESSION_KEYS=a2VlbC10ZXN0LXNpZ25pbmcta2V5LW9mLTMyLWJ5dGVzIQ==",
+	})
+	require.NoError(t, err)
+	ctx := logx.WithLogger(t.Context(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	built, err := app.Build(ctx, cfg, app.Deps{})
+	require.NoError(t, err)
+	user := users.ID(ids.New())
+	walked := 0
+	built.Realms.Each(func(r realm.Realm, api huma.API) {
+		call := func(op *huma.Operation, perms ...rbac.Code) int {
+			var grants []rbac.Grant
+			for _, p := range perms {
+				grants = append(grants, rbac.Grant{Perm: p})
+			}
+			body := map[string]string{http.MethodPost: `{"name":"x"}`, http.MethodPatch: `{"version":1}`}[op.Method]
+			as := rbac.WithPrincipal(ctx, rbac.NewPrincipal(user, r.Name, grants...))
+			req := httptest.NewRequestWithContext(as, op.Method, pathParam.ReplaceAllString(op.Path, ids.New().String()), strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			built.Handler.ServeHTTP(rec, req)
+			return rec.Code
+		}
+		for _, op := range httpx.Operations(api) {
+			if !slices.Contains(op.Tags, "{%.Module%}") {
+				continue
+			}
+			walked++
+			want := {%.Module%}.PermWrite
+			if op.Method == http.MethodGet {
+				want = {%.Module%}.PermRead
+			}
+			need, ok := rbac.NeedOf(op)
+			require.True(t, ok, op.OperationID)
+			assert.Equal(t, []rbac.Code{want}, need.Perms(), op.OperationID)
+			assert.Equal(t, http.StatusForbidden, call(op), "%s with no permission", op.OperationID)
+			if want == {%.Module%}.PermWrite {
+				assert.Equal(t, http.StatusForbidden, call(op, {%.Module%}.PermRead), "%s with read only", op.OperationID)
+			}
+			assert.Equal(t, http.StatusServiceUnavailable, call(op, want), "%s with %s", op.OperationID, want)
+		}
+	})
+	assert.Positive(t, walked)
+}

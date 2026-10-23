@@ -1,0 +1,8 @@
+{{define "subject"}}You are invited{{end}}{{define "content"}}Hello {{.Name}},
+
+You have been invited to an account. Open this link to set your password and sign in:
+
+{{.Link}}
+
+The link works once and expires after a few days.
+{{end}}

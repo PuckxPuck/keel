@@ -1,0 +1,127 @@
+package {%.Module%}
+
+import (
+	"context"
+
+	jet "github.com/go-jet/jet/v2/{%.Dialect%}"
+	"github.com/google/uuid"
+
+	"{%.ModPath%}/internal/dbgen/{%.Dialect%}/model"
+	"{%.ModPath%}/internal/dbgen/{%.Dialect%}/table"
+	"{%.ModPath%}/internal/kit/db"
+	"{%.ModPath%}/internal/kit/ids"
+	"{%.ModPath%}/internal/kit/occ"
+	"{%.ModPath%}/internal/kit/paging"
+	"{%.ModPath%}/internal/kit/users"
+)
+
+var byID = paging.Key[model.{%.Table%}]{Column: table.{%.Table%}.ID, Value: func(r model.{%.Table%}) any { return r.ID }}
+
+// sorts are the list's allowed sorts; the migration has an index for each.
+var sorts = paging.Sorts[model.{%.Table%}]{
+	"name":      {{Column: table.{%.Table%}.Name, Value: func(r model.{%.Table%}) any { return r.Name }}, byID},
+	"createdAt": {{Column: table.{%.Table%}.CreatedAt, Value: func(r model.{%.Table%}) any { return r.CreatedAt }}, byID},
+}
+
+func insert(ctx context.Context, tx db.Tx[{%.Scope%}], item {%.Type%}) error {
+	_, err := table.{%.Table%}.INSERT(db.Insertable(table.{%.Table%}.AllColumns)).MODEL(toModel(item)).ExecContext(ctx, tx.Q())
+	return err
+}
+
+func get(ctx context.Context, tx db.Tx[{%.Scope%}], id ID, forUpdate bool) ({%.Type%}, error) {
+	stmt := jet.SELECT(table.{%.Table%}.AllColumns).FROM(table.{%.Table%}).WHERE(table.{%.Table%}.ID.EQ(id.Param()))
+	if forUpdate {
+		stmt = stmt.FOR(jet.UPDATE())
+	}
+	var m model.{%.Table%}
+	if err := stmt.QueryContext(ctx, tx.Q(), &m); err != nil {
+		return {%.Type%}{}, db.NotFoundOr(err, ErrNotFound)
+	}
+	return fromModel(m), nil
+}
+
+func list(ctx context.Context, tx db.Tx[{%.Scope%}], cursors *paging.Keyset, p paging.Request) (paging.Page[{%.Type%}], error) {
+	sort, err := sorts.Resolve(p.Sort, "-createdAt")
+	if err != nil {
+		return paging.Page[{%.Type%}]{}, err
+	}
+	after, err := cursors.After(p.Cursor, sort, nil)
+	if err != nil {
+		return paging.Page[{%.Type%}]{}, err
+	}
+	stmt := jet.SELECT(table.{%.Table%}.AllColumns).
+		FROM(table.{%.Table%}).
+		WHERE(after).
+		ORDER_BY(sort.OrderBy()...).
+		LIMIT(int64(p.Limit + 1))
+	var rows []model.{%.Table%}
+	if err := stmt.QueryContext(ctx, tx.Q(), &rows); err != nil {
+		return paging.Page[{%.Type%}]{}, err
+	}
+	return paging.Trim(rows, p.Limit, sort, nil, cursors, fromModel)
+}
+
+// update writes item over the row at version; a row at another version is an *occ.StaleError.
+func update(ctx context.Context, tx db.Tx[{%.Scope%}], item {%.Type%}, version int32) error {
+	t := table.{%.Table%}
+	res, err := t.UPDATE(t.Name, t.Version, t.UpdatedAt, t.UpdatedBy).
+		MODEL(toModel(item)).
+		WHERE(t.ID.EQ(item.ID.Param()).AND(t.Version.EQ(jet.Int32(version)))).
+		ExecContext(ctx, tx.Q())
+	if err != nil {
+		return err
+	}
+	return occ.Check(ctx, res, func(ctx context.Context) (occ.Current, error) {
+		cur, err := get(ctx, tx, item.ID, false)
+		return current(cur), err
+	})
+}
+
+func remove(ctx context.Context, tx db.Tx[{%.Scope%}], id ID) error {
+	res, err := table.{%.Table%}.DELETE().WHERE(table.{%.Table%}.ID.EQ(id.Param())).ExecContext(ctx, tx.Q())
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func current(item {%.Type%}) occ.Current {
+	return occ.Current{Version: int(item.Version), ChangedBy: userUUID(item.UpdatedBy), ChangedAt: item.UpdatedAt}
+}
+
+func toModel(item {%.Type%}) model.{%.Table%} {
+	return model.{%.Table%}{
+		ID: item.ID.UUID(), Name: item.Name, Version: item.Version, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt,
+		CreatedBy: userUUID(item.CreatedBy), UpdatedBy: userUUID(item.UpdatedBy),
+	}
+}
+
+func fromModel(m model.{%.Table%}) {%.Type%} {
+	return {%.Type%}{
+		ID: ids.FromUUID[{%.Var%}Tag](m.ID), Name: m.Name, Version: m.Version, CreatedAt: m.CreatedAt.UTC(), UpdatedAt: m.UpdatedAt.UTC(),
+		CreatedBy: userID(m.CreatedBy), UpdatedBy: userID(m.UpdatedBy),
+	}
+}
+
+func userUUID(id *users.ID) *uuid.UUID {
+	if id == nil {
+		return nil
+	}
+	u := id.UUID()
+	return &u
+}
+
+func userID(u *uuid.UUID) *users.ID {
+	if u == nil {
+		return nil
+	}
+	id := users.ID(*u)
+	return &id
+}

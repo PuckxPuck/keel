@@ -1,0 +1,144 @@
+package {%.Module%}
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"{%.ModPath%}/internal/kit/audit"
+	"{%.ModPath%}/internal/kit/clock"
+	"{%.ModPath%}/internal/kit/db"
+	"{%.ModPath%}/internal/kit/ids"
+	"{%.ModPath%}/internal/kit/occ"
+	"{%.ModPath%}/internal/kit/paging"
+	"{%.ModPath%}/internal/kit/users"
+)
+
+type {%.Var%}Tag struct{}
+
+type ID = ids.ID[{%.Var%}Tag]
+
+func ParseID(s string) (ID, error) { return ids.Parse[{%.Var%}Tag](s) }
+
+type {%.Type%} struct {
+	ID        ID        `json:"id"`
+	Name      string    `json:"name"`
+	Version   int32     `json:"version"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	CreatedBy *users.ID `json:"createdBy,omitempty"`
+	UpdatedBy *users.ID `json:"updatedBy,omitempty"`
+}
+
+// Patch is the fields an update sets; nil leaves a field as it is.
+type Patch struct {
+	Name *string
+}
+
+var ErrNotFound = errors.New("{%.Var%} not found")
+
+const entity = "{%.Var%}"
+
+type Service struct {
+	db      *db.DB
+	audit   *audit.Recorder
+	cursors *paging.Keyset
+}
+
+func NewService(d *db.DB, rec *audit.Recorder, cursors *paging.Keyset) *Service {
+	return &Service{db: d, audit: rec, cursors: cursors}
+}
+
+// now is the business clock at the database's precision, so what a write returns equals what a read finds.
+func now(ctx context.Context) time.Time {
+	return clock.Business(ctx).Now().UTC().Truncate(time.Microsecond)
+}
+
+func (s *Service) Create(ctx context.Context, by *users.ID, name string) ({%.Type%}, error) {
+	name, err := cleanName(name)
+	if err != nil {
+		return {%.Type%}{}, err
+	}
+	at := now(ctx)
+	item := {%.Type%}{ID: ids.NewOf[{%.Var%}Tag](), Name: name, Version: 1, CreatedAt: at, UpdatedAt: at, CreatedBy: by, UpdatedBy: by}
+	err = db.InTx(ctx, s.db, func(ctx context.Context, tx db.Tx[{%.Scope%}]) error {
+		if err := insert(ctx, tx, item); err != nil {
+			return err
+		}
+		return s.audit.Record(ctx, tx, audit.Event{Action: entity + ".created", Entity: entity, EntityID: item.ID.String(), After: item})
+	})
+	if err != nil {
+		return {%.Type%}{}, err
+	}
+	return item, nil
+}
+
+func (s *Service) Get(ctx context.Context, id ID) ({%.Type%}, error) {
+	var out {%.Type%}
+	err := db.InTx(ctx, s.db, func(ctx context.Context, tx db.Tx[{%.Scope%}]) error {
+		var err error
+		out, err = get(ctx, tx, id, false)
+		return err
+	}, db.ReadOnly())
+	return out, err
+}
+
+func (s *Service) List(ctx context.Context, p paging.Request) (paging.Page[{%.Type%}], error) {
+	var page paging.Page[{%.Type%}]
+	err := db.InTx(ctx, s.db, func(ctx context.Context, tx db.Tx[{%.Scope%}]) error {
+		var err error
+		page, err = list(ctx, tx, s.cursors, p)
+		return err
+	}, db.ReadOnly())
+	return page, err
+}
+
+// Update applies patch to the {%.Var%} if it is still at version; otherwise it returns an *occ.StaleError.
+// The update itself is conditional on the version, so no lock is needed. A patch that changes nothing
+// writes nothing.
+func (s *Service) Update(ctx context.Context, by *users.ID, id ID, version int32, patch Patch) ({%.Type%}, error) {
+	var name string
+	if patch.Name != nil {
+		var err error
+		if name, err = cleanName(*patch.Name); err != nil {
+			return {%.Type%}{}, err
+		}
+	}
+	var after {%.Type%}
+	err := db.InTx(ctx, s.db, func(ctx context.Context, tx db.Tx[{%.Scope%}]) error {
+		before, err := get(ctx, tx, id, false)
+		if err != nil {
+			return err
+		}
+		after = before
+		if patch.Name == nil || name == before.Name {
+			if before.Version != version {
+				return &occ.StaleError{Current: current(before)}
+			}
+			return nil
+		}
+		after.Name = name
+		after.Version, after.UpdatedAt, after.UpdatedBy = version+1, now(ctx), by
+		if err := update(ctx, tx, after, version); err != nil {
+			return err
+		}
+		return s.audit.Record(ctx, tx, audit.Event{Action: entity + ".updated", Entity: entity, EntityID: id.String(), Before: before, After: after})
+	})
+	if err != nil {
+		return {%.Type%}{}, err
+	}
+	return after, nil
+}
+
+func (s *Service) Delete(ctx context.Context, id ID) error {
+	return db.InTx(ctx, s.db, func(ctx context.Context, tx db.Tx[{%.Scope%}]) error {
+		before, err := get(ctx, tx, id, true)
+		if err != nil {
+			return err
+		}
+		if err := remove(ctx, tx, id); err != nil {
+			return err
+		}
+		return s.audit.Record(ctx, tx, audit.Event{Action: entity + ".deleted", Entity: entity, EntityID: id.String(), Before: before})
+	})
+}

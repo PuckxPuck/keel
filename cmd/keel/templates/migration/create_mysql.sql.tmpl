@@ -1,0 +1,23 @@
+-- +goose Up
+create table {%.Table%} (
+    id char(36) character set ascii collate ascii_bin not null primary key,
+{%- if .Example%}
+    name varchar(200) not null check (char_length(name) >= 1),
+{%- end%}
+    version int not null default 1 check (version >= 1),
+    created_by char(36) character set ascii collate ascii_bin null,
+    updated_by char(36) character set ascii collate ascii_bin null,
+    created_at datetime(6) not null,
+    updated_at datetime(6) not null,
+{%- if .Example%}
+    key {%.Table%}_name (name, id),
+    key {%.Table%}_created_at (created_at, id),
+{%- end%}
+    key {%.Table%}_created_by (created_by),
+    key {%.Table%}_updated_by (updated_by),
+    constraint {%.Table%}_created_by_fk foreign key (created_by) references users (id) on delete set null,
+    constraint {%.Table%}_updated_by_fk foreign key (updated_by) references users (id) on delete set null
+);
+
+-- +goose Down
+drop table {%.Table%};

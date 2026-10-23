@@ -1,0 +1,13 @@
+.env*
+!.env.example
+*.local
+bin/
+/keel
+/app
+/cmd/*/app
+/cmd/*/keel
+/var/
+/tmp/
+.DS_Store
+coverage.out
+.claude/agent-memory/

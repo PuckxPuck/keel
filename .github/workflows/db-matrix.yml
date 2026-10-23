@@ -1,0 +1,71 @@
+name: db-matrix
+
+on:
+  workflow_call:
+  pull_request:
+    paths:
+      - internal/kit/db/**
+      - internal/kit/migrate/**
+      - internal/kit/testdb/**
+      - internal/kit/paging/**
+      - db/migrations/**
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # part:postgres
+          - { engine: postgres, image: "postgres:17", port: 5432, health: "pg_isready -U postgres", url: "postgres://postgres:test@127.0.0.1:5432/postgres?sslmode=disable" }
+          - { engine: postgres, image: "postgres:18", port: 5432, health: "pg_isready -U postgres", url: "postgres://postgres:test@127.0.0.1:5432/postgres?sslmode=disable" }
+          # /part:postgres
+          # part:mysql
+          - { engine: mysql, image: "mysql:8.4", port: 3306, health: "mysqladmin ping -h 127.0.0.1 -ptest", url: "mysql://root:test@127.0.0.1:3306/mysql" }
+          - { engine: mysql, image: "mysql:9.7", port: 3306, health: "mysqladmin ping -h 127.0.0.1 -ptest", url: "mysql://root:test@127.0.0.1:3306/mysql" }
+          # /part:mysql
+    name: ${{ matrix.image }}
+    services:
+      db:
+        image: ${{ matrix.image }}
+        env:
+          POSTGRES_PASSWORD: test
+          MYSQL_ROOT_PASSWORD: test
+        ports:
+          - ${{ matrix.port }}:${{ matrix.port }}
+        options: >-
+          --health-cmd "${{ matrix.health }}"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: go run ./cmd/keel test --engine ${{ matrix.engine }}
+        env:
+          APP_TEST_DATABASE_URL: ${{ matrix.engine == 'postgres' && matrix.url || '' }}
+          APP_TEST_MYSQL_URL: ${{ matrix.engine == 'mysql' && matrix.url || '' }}
+      # part:keel
+      # keel itself holds both dialects; ci.yml's gen job checks them together.
+      # /part:keel
+      # part:postgres
+      - if: matrix.image == 'postgres:18' && hashFiles('db/migrations/mysql/**') == ''
+        run: go run ./cmd/keel gen --check
+        env:
+          APP_TEST_DATABASE_URL: ${{ matrix.url }}
+      # /part:postgres
+      # part:mysql
+      - if: matrix.image == 'mysql:9.7' && hashFiles('db/migrations/postgres/**') == ''
+        run: go run ./cmd/keel gen --check
+        env:
+          APP_TEST_MYSQL_URL: ${{ matrix.url }}
+      # /part:mysql

@@ -1,0 +1,27 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"flag"
+
+	"{%.ModPath%}/internal/kit/cli"
+)
+
+func {%.Func%}(environ []string) cli.Command {
+	return cli.Command{
+		Name: "{%.Name%}", Summary: "{%.Summary%}", Flags: cli.JSONFlag,
+		Run: func(ctx context.Context, fs *flag.FlagSet, _ []string) error {
+			cfg, err := LoadConfig(environ)
+			if err != nil {
+				return errors.New("invalid configuration:\n" + err.Error())
+			}
+			deps, err := OpenDatabase(ctx, cfg)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = deps.DB.Close() }()
+			return cli.Print(fs.Output(), cli.WantsJSON(fs), cli.Table{Columns: []string{"command", "result"}, Rows: [][]string{{"{%.Name%}", "done"}}})
+		},
+	}
+}

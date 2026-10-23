@@ -1,0 +1,4 @@
+{{define "subject"}}Your note was archived{{end}}{{define "content"}}Hello {{.Name}},
+
+Your note "{{.Title}}" was archived. It can still be read, but no longer changed.
+{{end}}

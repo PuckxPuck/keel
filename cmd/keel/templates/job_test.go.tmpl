@@ -1,0 +1,27 @@
+package {%.Module%}_test
+
+import (
+	"context"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"{%.ModPath%}/internal/kit/db"
+	"{%.ModPath%}/internal/kit/jobs"
+	"{%.ModPath%}/internal/kit/testdb"
+	"{%.ModPath%}/internal/modules/{%.Module%}"
+)
+
+// The module registers Kind{%.Kind%}, so the job can be enqueued in the transaction that asks for it.
+func Test{%.Kind%}Job_IsRegistered(t *testing.T) {
+	d := testdb.Get(t)
+	q, err := jobs.New(jobs.Options{Config: jobs.Defaults(), Tx: jobs.PlainTx(d)})
+	require.NoError(t, err)
+	{%.Module%}.New({%.Module%}.Deps{}).Jobs(q)
+
+	err = db.InTx(t.Context(), d, func(ctx context.Context, tx db.Tx[db.Plain]) error {
+		_, err := q.Enqueue(ctx, tx, {%.Module%}.Kind{%.Kind%}, {%.Module%}.{%.Kind%}Payload{})
+		return err
+	})
+	require.NoError(t, err)
+}

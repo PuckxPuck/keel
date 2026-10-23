@@ -1,0 +1,107 @@
+name: keel
+
+services:
+  # part:postgres
+  postgres:
+    profiles: [pg]
+    image: postgres:18.6
+    environment:
+      POSTGRES_USER: keel
+      POSTGRES_PASSWORD: ${KEEL_PG_PASSWORD:-keel-local}
+      POSTGRES_DB: keel
+      KEEL_OWNER_PASSWORD: keel-owner-local
+      KEEL_APP_PASSWORD: keel-app-local
+      # part:tenancy
+      KEEL_OPERATOR_PASSWORD: keel-operator-local
+      # /part:tenancy
+    ports:
+      - "127.0.0.1:${KEEL_PG_PORT:-5442}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./deploy/db/postgres-roles.sql:/opt/keel/postgres-roles.sql:ro
+      - ./deploy/db/local-init.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keel -d keel"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  # /part:postgres
+
+  # part:mysql
+  mysql:
+    profiles: [mysql]
+    image: mysql:9.7.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${KEEL_MYSQL_PASSWORD:-keel-local}
+      MYSQL_DATABASE: keel
+    ports:
+      - "127.0.0.1:${KEEL_MYSQL_PORT:-3316}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -p$$MYSQL_ROOT_PASSWORD"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  # /part:mysql
+
+  # part:mail
+  mailpit:
+    profiles: [mail]
+    image: axllent/mailpit:v1.31.6
+    ports:
+      - "127.0.0.1:${KEEL_SMTP_PORT:-1025}:1025"
+      - "127.0.0.1:${KEEL_MAIL_UI_PORT:-8025}:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  # /part:mail
+
+  # part:pdf
+  gotenberg:
+    profiles: [pdf]
+    image: gotenberg/gotenberg:8.38.1
+    command:
+      - gotenberg
+      - --chromium-allow-list=^file:///tmp/.*
+      - --chromium-disable-javascript=true
+      - --webhook-disable
+    ports:
+      - "127.0.0.1:${KEEL_PDF_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+  # /part:pdf
+
+  # part:files
+  seaweedfs:
+    profiles: [s3]
+    image: chrislusf/seaweedfs:4.48
+    command: ["server", "-s3", "-dir=/data"]
+    environment:
+      WEED_S3_SSE_KEY: keel-local-sse
+    ports:
+      - "127.0.0.1:${KEEL_S3_PORT:-8333}:8333"
+    volumes:
+      - seaweed-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9333/cluster/status"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+  # /part:files
+
+volumes:
+  # part:postgres
+  postgres-data:
+  # /part:postgres
+  # part:mysql
+  mysql-data:
+  # /part:mysql
+  # part:files
+  seaweed-data:
+  # /part:files

@@ -1,0 +1,177 @@
+package {%.Module%}
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"net/url"
+	"strconv"
+	"time"
+
+	"{%.ModPath%}/internal/kit/auth"
+	"{%.ModPath%}/internal/kit/httpx"
+	"{%.ModPath%}/internal/kit/httpx/problem"
+	"{%.ModPath%}/internal/kit/paging"
+	"{%.ModPath%}/internal/kit/rbac"
+	"{%.ModPath%}/internal/kit/users"
+)
+
+// {%.Type%}Resource is a {%.Var%} as the API shows it; can says what the caller may do with it.
+type {%.Type%}Resource struct {
+	ID        ID           `json:"id"`
+	Name      string       `json:"name"`
+	Version   int32        `json:"version"`
+	CreatedAt time.Time    `json:"createdAt"`
+	UpdatedAt time.Time    `json:"updatedAt"`
+	Can       {%.Type%}Can `json:"can"`
+}
+
+type {%.Type%}Can struct {
+	Edit   bool `json:"edit"`
+	Delete bool `json:"delete"`
+}
+
+type listInput struct {
+	Limit  int    `query:"limit" minimum:"1" maximum:"100" default:"50"`
+	Cursor string `query:"cursor" maxLength:"1024"`
+	Sort   string `query:"sort" enum:"name,-name,createdAt,-createdAt" default:"-createdAt"`
+}
+
+type idInput struct {
+	{%.Type%}ID string `path:"{%.Var%}Id" format:"uuid"`
+}
+
+type createInput struct {
+	Body struct {
+		Name string `json:"name" minLength:"1" maxLength:"200"`
+	}
+}
+
+type updateInput struct {
+	{%.Type%}ID string `path:"{%.Var%}Id" format:"uuid"`
+	Body        struct {
+		Version int32   `json:"version" minimum:"1" doc:"The version the change was made against; another one is 409"`
+		Name    *string `json:"name,omitempty" minLength:"1" maxLength:"200"`
+	}
+}
+
+var errUnavailable = problem.New(http.StatusServiceUnavailable, problem.CodeUnavailable, "try again shortly")
+
+type handlers struct {
+	svc      *Service
+	basePath string
+}
+
+func (h handlers) ready() error {
+	if h.svc.db == nil {
+		return errUnavailable
+	}
+	return nil
+}
+
+func (h handlers) list(ctx context.Context, in *listInput) (*httpx.List[{%.Type%}Resource], error) {
+	if err := h.ready(); err != nil {
+		return nil, err
+	}
+	page, err := h.svc.List(ctx, paging.Request{Limit: in.Limit, Cursor: in.Cursor, Sort: in.Sort})
+	if err != nil {
+		return nil, err
+	}
+	p := principal(ctx)
+	out := paging.Page[{%.Type%}Resource]{Items: make([]{%.Type%}Resource, len(page.Items)), Next: page.Next}
+	for i, item := range page.Items {
+		out.Items[i] = resource(item, p)
+	}
+	self := &url.URL{Path: h.basePath + "/{%.Module%}", RawQuery: url.Values{"limit": {strconv.Itoa(in.Limit)}, "sort": {in.Sort}}.Encode()}
+	return out.List(in.Limit, self), nil
+}
+
+func (h handlers) get(ctx context.Context, in *idInput) (*httpx.One[{%.Type%}Resource], error) {
+	if err := h.ready(); err != nil {
+		return nil, err
+	}
+	id, err := ParseID(in.{%.Type%}ID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	item, err := h.svc.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return httpx.OneOf(resource(item, principal(ctx))), nil
+}
+
+func (h handlers) create(ctx context.Context, in *createInput) (*httpx.One[{%.Type%}Resource], error) {
+	if err := h.ready(); err != nil {
+		return nil, err
+	}
+	item, err := h.svc.Create(ctx, actingUser(ctx), in.Body.Name)
+	if err != nil {
+		return nil, err
+	}
+	return httpx.OneOf(resource(item, principal(ctx))), nil
+}
+
+func (h handlers) update(ctx context.Context, in *updateInput) (*httpx.One[{%.Type%}Resource], error) {
+	if err := h.ready(); err != nil {
+		return nil, err
+	}
+	id, err := ParseID(in.{%.Type%}ID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	item, err := h.svc.Update(ctx, actingUser(ctx), id, in.Body.Version, Patch{Name: in.Body.Name})
+	if err != nil {
+		return nil, err
+	}
+	return httpx.OneOf(resource(item, principal(ctx))), nil
+}
+
+func (h handlers) delete(ctx context.Context, in *idInput) (*httpx.NoContent, error) {
+	if err := h.ready(); err != nil {
+		return nil, err
+	}
+	id, err := ParseID(in.{%.Type%}ID)
+	if err != nil {
+		return nil, ErrNotFound
+	}
+	if err := h.svc.Delete(ctx, id); err != nil {
+		return nil, err
+	}
+	return &httpx.NoContent{}, nil
+}
+
+// principal is the caller; the operation's Need has already required one.
+func principal(ctx context.Context) rbac.Principal {
+	p, _ := auth.PrincipalFrom(ctx)
+	return p
+}
+
+func actingUser(ctx context.Context) *users.ID {
+	if id, ok := principal(ctx).ActingUser(); ok {
+		return &id
+	}
+	return nil
+}
+
+func resource(item {%.Type%}, p rbac.Principal) {%.Type%}Resource {
+	return {%.Type%}Resource{
+		ID: item.ID, Name: item.Name, Version: item.Version, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt,
+		Can: {%.Type%}Can{Edit: p.Can(PermWrite), Delete: p.Can(PermWrite)},
+	}
+}
+
+func mapError(err error) (*problem.Problem, bool) {
+	var invalid *InvalidError
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return problem.New(http.StatusNotFound, problem.CodeNotFound, "{%.Var%} not found"), true
+	case errors.As(err, &invalid):
+		p := problem.New(http.StatusUnprocessableEntity, problem.CodeValidationFailed, invalid.Error())
+		for _, f := range invalid.Fields {
+			p.Errors = append(p.Errors, problem.FieldError{Location: "body." + f.Field, Code: f.Code, Message: f.Message})
+		}
+		return p, true
+	}
+	return nil, false
+}

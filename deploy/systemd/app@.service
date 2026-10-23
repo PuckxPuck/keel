@@ -1,0 +1,70 @@
+# One instance per slot: app@blue and app@green. release.sh points /srv/app/slots/%i at a release and
+# enables only the live slot, so a reboot brings back the slot nginx routes to.
+[Unit]
+Description=app (%i slot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=app
+Group=app
+WorkingDirectory=/srv/app/slots/%i
+
+EnvironmentFile=/etc/app/app.env
+# Only APP_HTTP_ADDR, the slot's loopback address.
+EnvironmentFile=/etc/app/%i.env
+# Both slots run during a switch, so the host needs room for two (see docs/operations.md).
+MemoryHigh=704M
+MemoryMax=768M
+# About 90% of MemoryMax; change the two together.
+Environment=GOMEMLIMIT=690MiB
+
+LoadCredential=database_url:/etc/app/credentials/database_url
+LoadCredential=session_keys:/etc/app/credentials/session_keys
+Environment=APP_DATABASE_URL_FILE=%d/database_url
+Environment=APP_SESSION_KEYS_FILE=%d/session_keys
+# part:tenancy
+LoadCredential=database_operator_url:/etc/app/credentials/database_operator_url
+Environment=APP_DATABASE_OPERATOR_URL_FILE=%d/database_operator_url
+# /part:tenancy
+# part:mail
+LoadCredential=smtp_password:/etc/app/credentials/smtp_password
+Environment=APP_MAIL_SMTP_PASSWORD_FILE=%d/smtp_password
+# /part:mail
+
+ExecStartPre=/srv/app/slots/%i/app migrate:validate
+ExecStart=/srv/app/slots/%i/app serve
+KillSignal=SIGTERM
+# The app bounds its own stop at APP_HTTP_SHUTDOWN_DRAIN plus APP_HTTP_SHUTDOWN_TIMEOUT.
+TimeoutStopSec=infinity
+Restart=on-failure
+RestartSec=2
+
+StateDirectory=app/files
+StateDirectoryMode=0700
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

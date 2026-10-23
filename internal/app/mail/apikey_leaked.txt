@@ -1,0 +1,7 @@
+{{define "subject"}}An API key was found in public and revoked{{end}}{{define "content"}}Hello {{.Name}},
+
+The API key "{{.Key}}" ({{.Hint}}) was reported as exposed in public and has been revoked. Integrations
+that used it stop working until they get a new key.{{if .Where}}
+
+Where it was found: {{.Where}}{{end}}
+{{end}}

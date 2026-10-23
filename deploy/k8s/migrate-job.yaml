@@ -1,0 +1,69 @@
+# Apply and wait for it before updating the Deployment's image digest; name it per release so it runs once:
+#   kubectl apply -f migrate-job.yaml && kubectl wait --for=condition=complete --timeout=30m job/app-migrate-v1-0-0
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: app-migrate-v1-0-0
+spec:
+  backoffLimit: 0
+  # A migration blocked on a lock fails instead of running forever.
+  activeDeadlineSeconds: 1800
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: validate
+          image: registry.example.com/app@sha256:<digest>
+          args: ["migrate:validate"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      containers:
+        - name: migrate
+          image: registry.example.com/app@sha256:<digest>
+          args: ["migrate"]
+          envFrom:
+            - configMapRef:
+                name: app-env
+          env:
+            - name: APP_DATABASE_URL_FILE
+              value: /run/secrets/app/database_url
+            - name: APP_DATABASE_MIGRATE_URL_FILE
+              value: /run/secrets/app/database_migrate_url
+            - name: APP_SESSION_KEYS_FILE
+              value: /run/secrets/app/session_keys
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: secrets
+              mountPath: /run/secrets/app
+              readOnly: true
+      volumes:
+        - name: secrets
+          secret:
+            secretName: app

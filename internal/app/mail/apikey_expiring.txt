@@ -1,0 +1,5 @@
+{{define "subject"}}An API key expires soon{{end}}{{define "content"}}Hello {{.Name}},
+
+The API key "{{.Key}}" ({{.Hint}}) expires on {{.Expires}}. Integrations that use it stop working then.
+Create a new key and switch them over before that date.
+{{end}}

@@ -1,0 +1,93 @@
+package {%.Module%}
+
+import (
+	"context"
+	"net/http"
+
+	"github.com/danielgtaylor/huma/v2"
+
+	"{%.ModPath%}/internal/kit/audit"
+	"{%.ModPath%}/internal/kit/cli"
+	"{%.ModPath%}/internal/kit/db"
+{%- if .Files%}
+	"{%.ModPath%}/internal/kit/files"
+{%- end%}
+	"{%.ModPath%}/internal/kit/httpx"
+	"{%.ModPath%}/internal/kit/httpx/problem"
+	"{%.ModPath%}/internal/kit/jobs"
+{%- if .Mail%}
+	"{%.ModPath%}/internal/kit/mail"
+{%- end%}
+	"{%.ModPath%}/internal/kit/paging"
+	"{%.ModPath%}/internal/kit/ratelimit"
+	"{%.ModPath%}/internal/kit/rbac"
+)
+
+// Deps is what the module takes from the app's wiring: the realm that serves it and that realm's base
+// path (for list links). Without a database its operations answer 503 (route:list, the OpenAPI export).
+type Deps struct {
+	Realm    string
+	BasePath string
+	DB       *db.DB
+	Audit    *audit.Recorder
+	Cursors  *paging.Keyset
+	// Jobs is the queue serve runs, nil without a database: enqueue in the transaction that makes the
+	// change, so the job exists only if the change commits.
+	Jobs *jobs.Queue
+{%- if .Mail%}
+	// Mail queues email in the caller's transaction; nil without a database.
+	Mail *mail.Service
+{%- end%}
+{%- if .Files%}
+	// Files stores uploads; nil when APP_FILES_DRIVER is unset.
+	Files *files.Service
+{%- end%}
+}
+
+type Module struct {
+	realm    string
+	basePath string
+	svc      *Service
+}
+
+func New(d Deps) *Module {
+	return &Module{realm: d.Realm, basePath: d.BasePath, svc: NewService(d.DB, d.Audit, d.Cursors)}
+}
+
+func (m *Module) Permissions(realm string) []rbac.Perm {
+	if realm != m.realm {
+		return nil
+	}
+	return permissions
+}
+
+var tags = []string{"{%.Module%}"}
+
+func (m *Module) Register(realm string, api huma.API) {
+	if realm != m.realm {
+		return
+	}
+	h := handlers{svc: m.svc, basePath: m.basePath}
+	read, write := ratelimit.Class(ratelimit.ClassAPIRead), ratelimit.Class(ratelimit.ClassAPIWrite)
+	op := func(id, method, path, summary string, errs ...int) huma.Operation {
+		return huma.Operation{OperationID: id, Method: method, Path: path, Summary: summary, Tags: tags, Errors: errs}
+	}
+	httpx.Register(api, op("list{%.Title%}", http.MethodGet, "/{%.Module%}", "List {%.Module%}", http.StatusBadRequest),
+		h.list, rbac.Requires(PermRead), read)
+	httpx.Register(api, op("get{%.Type%}", http.MethodGet, "/{%.Module%}/{{%.Var%}Id}", "Get a {%.Var%}", http.StatusNotFound, http.StatusUnprocessableEntity),
+		h.get, rbac.Requires(PermRead), read)
+	httpx.Register(api, op("create{%.Type%}", http.MethodPost, "/{%.Module%}", "Create a {%.Var%}", http.StatusUnprocessableEntity),
+		h.create, rbac.Requires(PermWrite), write)
+	httpx.Register(api, op("update{%.Type%}", http.MethodPatch, "/{%.Module%}/{{%.Var%}Id}", "Change a {%.Var%}",
+		http.StatusNotFound, http.StatusConflict, http.StatusUnprocessableEntity), h.update, rbac.Requires(PermWrite), write)
+	httpx.Register(api, op("delete{%.Type%}", http.MethodDelete, "/{%.Module%}/{{%.Var%}Id}", "Delete a {%.Var%}", http.StatusNotFound, http.StatusUnprocessableEntity),
+		h.delete, rbac.Requires(PermWrite), write)
+}
+
+func (m *Module) Mapper(err error) (*problem.Problem, bool) { return mapError(err) }
+
+func (m *Module) Jobs(_ *jobs.Queue) {}
+
+func (m *Module) Commands(_ func(ctx context.Context) (*db.DB, func(), error)) []cli.Command {
+	return nil
+}

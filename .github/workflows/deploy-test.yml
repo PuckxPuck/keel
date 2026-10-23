@@ -1,0 +1,49 @@
+name: deploy-test
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "43 3 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-test-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CGO_ENABLED: "0"
+
+jobs:
+  switch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      db:
+        image: postgres:18.6
+        env:
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: shellcheck deploy/release.sh
+      # keel check skips the deploytest build tag.
+      - run: go tool -modfile=tools/go.mod golangci-lint run --build-tags deploytest ./deploy/test/...
+      - run: make build
+      - run: make deploy-test
+        env:
+          APP_TEST_DATABASE_URL: postgres://postgres:test@127.0.0.1:5432/postgres?sslmode=disable
+          DEPLOYTEST_DOCKER: "1"
+      - run: docker build -f deploy/docker/Dockerfile --build-arg BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ) -t app:ci .

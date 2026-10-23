@@ -1,0 +1,85 @@
+package {%.Module%}_test
+
+import (
+	"bytes"
+{%- if .Tenancy%}
+	"context"
+{%- end%}
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"{%.ModPath%}/db/migrations"
+	"{%.ModPath%}/internal/kit/audit"
+	"{%.ModPath%}/internal/kit/db"
+	"{%.ModPath%}/internal/kit/occ"
+	"{%.ModPath%}/internal/kit/paging"
+{%- if .Tenancy%}
+	"{%.ModPath%}/internal/kit/tenancy"
+{%- end%}
+	"{%.ModPath%}/internal/kit/testdb"
+	"{%.ModPath%}/internal/modules/{%.Module%}"
+)
+
+func TestMain(m *testing.M) {
+	testdb.Main(m, testdb.Options{Migrations: migrations.FS, RolePrefix: migrations.RolePrefix})
+}
+{%if .Tenancy%}
+// tenants makes two tenants and returns the database and a context in each.
+func tenants(t *testing.T) (*db.DB, context.Context, context.Context) {
+	t.Helper()
+	d := testdb.Tenancy(t)
+	tenancy.Install(d.DB)
+	return d.DB, db.WithTenant(t.Context(), d.NewTenant(t, "first")), db.WithTenant(t.Context(), d.NewTenant(t, "second"))
+}
+{%end%}
+// A {%.Var%} is created, changed once, refused on a stale version, listed a page at a time and deleted
+{%- if .Tenancy%}; another tenant never sees it{%end%}.
+func TestService_CreateChangeListDelete(t *testing.T) {
+{%- if .Tenancy%}
+	d, ctx, other := tenants(t)
+{%- else%}
+	if dialect := testdb.Get(t).Dialect(); dialect != db.{%if eq .Dialect "postgres"%}Postgres{%else%}MySQL{%end%} {
+		t.Skipf("the store is written for {%.Dialect%}, the database is %s", dialect)
+	}
+	d := testdb.Isolated(t)
+	ctx := t.Context()
+{%- end%}
+	cursors, err := paging.NewKeyset(d.Dialect(), bytes.Repeat([]byte("k"), 32))
+	require.NoError(t, err)
+	svc := {%.Module%}.NewService(d, audit.New(audit.Options{}), cursors)
+
+	first, err := svc.Create(ctx, nil, "  First  ")
+	require.NoError(t, err)
+	assert.Equal(t, "First", first.Name)
+	_, err = svc.Create(ctx, nil, "Second")
+	require.NoError(t, err)
+
+	renamed := "Renamed"
+	changed, err := svc.Update(ctx, nil, first.ID, first.Version, {%.Module%}.Patch{Name: &renamed})
+	require.NoError(t, err)
+	assert.Equal(t, first.Version+1, changed.Version)
+	_, err = svc.Update(ctx, nil, first.ID, first.Version, {%.Module%}.Patch{Name: &renamed})
+	var stale *occ.StaleError
+	require.ErrorAs(t, err, &stale)
+	assert.Equal(t, int(changed.Version), stale.Current.Version)
+
+	page, err := svc.List(ctx, paging.Request{Limit: 1, Sort: "name"})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	assert.Equal(t, "Renamed", page.Items[0].Name)
+	page, err = svc.List(ctx, paging.Request{Limit: 1, Sort: "name", Cursor: page.Next})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	assert.Equal(t, "Second", page.Items[0].Name)
+	assert.Empty(t, page.Next)
+{%if .Tenancy%}
+	_, err = svc.Get(other, first.ID)
+	require.ErrorIs(t, err, {%.Module%}.ErrNotFound, "another tenant's {%.Var%}")
+	require.ErrorIs(t, svc.Delete(other, first.ID), {%.Module%}.ErrNotFound)
+{%end%}
+	require.NoError(t, svc.Delete(ctx, first.ID))
+	_, err = svc.Get(ctx, first.ID)
+	require.ErrorIs(t, err, {%.Module%}.ErrNotFound)
+}

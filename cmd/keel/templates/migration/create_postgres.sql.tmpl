@@ -1,0 +1,36 @@
+-- +goose Up
+create table {%.Table%} (
+{%- if .Tenancy%}
+    tenant_id uuid not null default (nullif(current_setting('app.tenant_id', true), '')::uuid) references tenants (id),
+    id uuid not null,
+{%- else%}
+    id uuid primary key,
+{%- end%}
+{%- if .Example%}
+    name text not null check (char_length(name) between 1 and 200),
+{%- end%}
+    version integer not null default 1 check (version >= 1),
+    created_by uuid references users (id) on delete set null,
+    updated_by uuid references users (id) on delete set null,
+    created_at timestamptz not null,
+    updated_at timestamptz not null
+{%- if .Tenancy%},
+    primary key (tenant_id, id)
+{%- end%}
+);
+{%- if .Example%}
+create index {%.Table%}_name on {%.Table%} ({%if .Tenancy%}tenant_id, {%end%}name, id);
+create index {%.Table%}_created_at on {%.Table%} ({%if .Tenancy%}tenant_id, {%end%}created_at, id);
+{%- end%}
+create index {%.Table%}_created_by on {%.Table%} ({%if .Tenancy%}tenant_id, {%end%}created_by);
+create index {%.Table%}_updated_by on {%.Table%} ({%if .Tenancy%}tenant_id, {%end%}updated_by);
+{%- if .Tenancy%}
+alter table {%.Table%} enable row level security;
+alter table {%.Table%} force row level security;
+create policy tenant_isolation on {%.Table%}
+    using (tenant_id = (select nullif(current_setting('app.tenant_id', true), '')::uuid))
+    with check (tenant_id = (select nullif(current_setting('app.tenant_id', true), '')::uuid));
+{%- end%}
+
+-- +goose Down
+drop table {%.Table%};

@@ -1,0 +1,107 @@
+# keel only: keel init deletes this file. Each job runs keel init on a fresh checkout, which builds the
+# app, runs gen and the full check on its one engine, so every combination below is an app that passes.
+name: init-matrix
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "37 1 * * *"
+    - cron: "53 4 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: init-matrix-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CGO_ENABLED: "0"
+  PG_URL: postgres://postgres:test@127.0.0.1:5432/postgres?sslmode=disable
+  MYSQL_URL: mysql://root:test@127.0.0.1:3306/mysql
+
+jobs:
+  combinations:
+    if: github.event.schedule != '53 4 * * 0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: "postgres, every part, notes", engine: postgres, args: "--with notes" }
+          - { name: "postgres, every part", engine: postgres, args: "" }
+          - { name: "postgres, every part, settings prefix", engine: postgres, args: "--env-prefix SHOP_" }
+          - { name: "postgres without tenancy", engine: postgres, args: "--without tenancy" }
+          - { name: "mysql, every part", engine: mysql, args: "--without tenancy" }
+          - { name: "postgres without every part", engine: postgres, args: "--without all" }
+          - { name: "mysql without every part", engine: mysql, args: "--without all" }
+          - { name: "postgres, tenancy only", engine: postgres, args: "--without apikeys,webhooks,connections,files,mail,pdf,docx,xlsx,barcode,oidc,passkey,otel" }
+    name: ${{ matrix.name }}
+    services:
+      db:
+        image: ${{ matrix.engine == 'postgres' && 'postgres:18' || 'mysql:9.7' }}
+        env:
+          POSTGRES_PASSWORD: test
+          MYSQL_ROOT_PASSWORD: test
+        ports:
+          - ${{ matrix.engine == 'postgres' && '5432:5432' || '3306:3306' }}
+        options: >-
+          --health-cmd "${{ matrix.engine == 'postgres' && 'pg_isready -U postgres' || 'mysqladmin ping -h 127.0.0.1 -ptest' }}"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+      - run: go run ./cmd/keel init --module example.com/acme/shop --name shop --db ${{ matrix.engine }} ${{ matrix.args }}
+        env:
+          APP_TEST_DATABASE_URL: ${{ matrix.engine == 'postgres' && env.PG_URL || '' }}
+          APP_TEST_MYSQL_URL: ${{ matrix.engine == 'mysql' && env.MYSQL_URL || '' }}
+
+  # Weekly: Postgres with tenancy and one part off at a time.
+  each-part-off:
+    if: github.event.schedule == '53 4 * * 0' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [apikeys, webhooks, connections, files, mail, pdf, docx, xlsx, barcode, oidc, passkey, otel]
+    name: without ${{ matrix.part }}
+    services:
+      db:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+      - run: go run ./cmd/keel init --module example.com/acme/shop --name shop --db postgres --without ${{ matrix.part }}
+        env:
+          APP_TEST_DATABASE_URL: ${{ env.PG_URL }}

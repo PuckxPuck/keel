@@ -1,0 +1,27 @@
+# Settings that are not secrets. Secrets live in the "app" Secret and arrive as files through the *_FILE
+# variables: database_url, database_migrate_url, session_keys,
+# part:tenancy
+# database_operator_url,
+# /part:tenancy
+# part:mail
+# smtp_password.
+# /part:mail
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-env
+data:
+  APP_ENV: production
+  APP_PUBLIC_URL: https://app.example.com
+  # Placeholder: the ingress controller's own pod range, and nothing wider, so no other pod can set the
+  # client address or request id. networkpolicy.yaml lets only the controller reach the pods.
+  APP_PROXY_TRUSTED: 192.0.2.0/24
+  # Drain plus shutdown covers APP_HTTP_WRITE_TIMEOUT (60s); terminationGracePeriodSeconds follows them.
+  APP_HTTP_SHUTDOWN_DRAIN: 5s
+  APP_HTTP_SHUTDOWN_TIMEOUT: 60s
+  # part:mail
+  # Mail carries reset, verification and invite links; production refuses the log driver.
+  APP_MAIL_DRIVER: smtp
+  APP_MAIL_FROM: no-reply@example.com
+  APP_MAIL_SMTP_HOST: smtp.example.com
+  # /part:mail
