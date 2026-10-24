@@ -313,7 +313,7 @@ func TestTenancy_OperatorRealm(t *testing.T) {
 }
 
 // operatorEnv is the operator pool production needs under tenancy.
-var operatorEnv = []string{"APP_DATABASE_OPERATOR_URL=postgres://operator@db.example.test/app?sslmode=verify-full"}
+var operatorEnv = []string{"APP_DATABASE_OPERATOR_URL=postgres://operator@db.example.test/app?sslmode=verify-full"} //nolint:unused // read by mail_test.go, which a build without mail leaves out
 
 // migrate checks the schema against the tenancy rules once it has applied the files, and fails on a
 // finding, so a deploy stops before the new release serves it.

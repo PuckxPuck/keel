@@ -160,7 +160,8 @@ func exportSpecs(ctx context.Context, t *tree, dest string) error {
 	}
 	defer func() { _ = os.RemoveAll(bin) }()
 	appBin := filepath.Join(bin, "app")
-	build := exec.CommandContext(ctx, "go", "build", "-o", appBin, "./cmd/app") //nolint:gosec // a temporary output path
+	// Without VCS stamping the documents carry info.version "dev" on every commit, so gen --check is stable.
+	build := exec.CommandContext(ctx, "go", "build", "-buildvcs=false", "-o", appBin, "./cmd/app") //nolint:gosec // a temporary output path
 	build.Dir, build.Stderr = t.root, os.Stderr
 	build.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if err := build.Run(); err != nil {

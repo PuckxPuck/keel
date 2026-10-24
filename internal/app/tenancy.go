@@ -852,6 +852,8 @@ func maintenanceTx(deps Deps) jobs.TxRunner {
 // jobTx is for kit services whose own transactions run only in jobs and shell commands (mail, outbound
 // webhooks): a job of a tenant gets that tenant's transaction; a global kind or a command, the operator
 // pool. Never hand it to work a request starts.
+//
+//nolint:unused // called by the mail and webhooks parts; an app without both never calls it
 func jobTx(deps Deps) jobs.TxRunner {
 	if !deps.Tenancy {
 		return jobs.PlainTx(deps.DB)
