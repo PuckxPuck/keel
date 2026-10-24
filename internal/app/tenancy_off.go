@@ -112,6 +112,7 @@ func queueTx(deps Deps) jobs.TxRunner { return jobs.PlainTx(deps.DB) }
 
 func maintenanceTx(deps Deps) jobs.TxRunner { return jobs.PlainTx(deps.DB) }
 
+//nolint:unused // called by the mail and webhooks parts; an app without both never calls it
 func jobTx(deps Deps) jobs.TxRunner { return jobs.PlainTx(deps.DB) }
 
 func eachTenant(ctx context.Context, _ Deps, _ bool, fn func(ctx context.Context) error) error {

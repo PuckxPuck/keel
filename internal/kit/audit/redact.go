@@ -5,6 +5,7 @@ import (
 	"encoding"
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/big"
 	"reflect"
 	"strconv"
@@ -198,7 +199,7 @@ func scrubStruct(v reflect.Value, out map[string]any) {
 	}
 }
 
-// canonical re-encodes JSON with sorted keys and every number as an exact decimal without an exponent,
+// canonical re-encodes JSON with sorted keys and every number as a decimal without an exponent,
 // so the text read back from jsonb or MySQL json (which reorder keys and rewrite numbers) hashes the
 // same as the text written. Integers beyond 64 bits and decimals beyond float64 precision lose digits
 // in MySQL json; marshal those as strings.
@@ -244,13 +245,25 @@ func exactNumbers(v any) (any, error) {
 	return v, nil
 }
 
-// decimal writes n exactly in positional notation with no trailing zeros: 1e21, 1E21 and
-// 1000000000000000000000.0 all become 1000000000000000000000, and -0 becomes 0.
+var (
+	minInt64  = big.NewInt(math.MinInt64)
+	maxUint64 = new(big.Int).SetUint64(math.MaxUint64)
+)
+
+// decimal writes n in positional notation with no trailing zeros: 1e21, 1E21 and
+// 1000000000000000000000.0 all become 1000000000000000000000, and -0 becomes 0. Integers in the 64-bit
+// range stay exact; anything else is a double in MySQL json, and MySQL 8.4 can store a bound double one
+// unit off in the last place, so it is rounded to 15 significant digits first.
 func decimal(n json.Number) (json.Number, error) {
 	r, ok := new(big.Rat).SetString(string(n))
 	if !ok {
 		return "", fmt.Errorf("audit: number %q", n)
 	}
+	if r.IsInt() && r.Num().Cmp(minInt64) >= 0 && r.Num().Cmp(maxUint64) <= 0 {
+		return json.Number(r.Num().String()), nil
+	}
+	f, _ := r.Float64()
+	r.SetString(strconv.FormatFloat(f, 'g', 15, 64))
 	if r.IsInt() {
 		return json.Number(r.Num().String()), nil
 	}

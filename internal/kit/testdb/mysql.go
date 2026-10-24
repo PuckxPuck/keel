@@ -147,8 +147,11 @@ func (s *myServer) ensureTemplate(ctx context.Context, hash string, migrations f
 			"SELECT COUNT(*) > 0 FROM information_schema.tables WHERE table_schema = ? AND table_name = ?", name, readyTable).Scan(&ready); err != nil {
 			return "", err
 		}
-		if ready {
+		if ready && reusable(name, s.pfx, clock.Wall(ctx).Now()) {
 			return name, nil
+		}
+		if ready {
+			continue
 		}
 		if err := s.drop(ctx, name); err != nil {
 			return "", err

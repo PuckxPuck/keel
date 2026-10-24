@@ -179,10 +179,11 @@ func (s *pgServer) ensureTemplate(ctx context.Context, hash string, migrations f
 	base := templateBase(s.roles.prefix, hash)
 	var existing string
 	err = conn.QueryRowContext(ctx,
-		"SELECT datname FROM pg_database WHERE starts_with(datname, $1) AND datistemplate ORDER BY datname LIMIT 1", base).Scan(&existing)
+		"SELECT datname FROM pg_database WHERE starts_with(datname, $1) AND datistemplate ORDER BY datname DESC LIMIT 1", base).Scan(&existing)
 	switch {
-	case err == nil:
+	case err == nil && reusable(existing, s.roles.prefix, clock.Wall(ctx).Now()):
 		return existing, nil
+	case err == nil:
 	case !errors.Is(err, sql.ErrNoRows):
 		return "", err
 	}

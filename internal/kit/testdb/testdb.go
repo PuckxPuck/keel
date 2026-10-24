@@ -551,6 +551,13 @@ func parseGenerated(name, prefix string) (generated, bool) {
 	return g, true
 }
 
+// reusable reports whether a ready template is young enough to hand out. Another package's janitor drops
+// templates past maxAge whatever their hash, so one in use must stay well short of it.
+func reusable(name, prefix string, now time.Time) bool {
+	g, ok := parseGenerated(name, prefix)
+	return ok && now.Sub(g.at) < maxAge/2
+}
+
 // expired reports whether the janitor may drop name: a database testdb made, older than maxAge, and not
 // the current template.
 func expired(name, prefix, currentHash string, now time.Time) bool {
