@@ -48,7 +48,7 @@ services:
   # part:mail
   mailpit:
     profiles: [mail]
-    image: axllent/mailpit:v1.31.6
+    image: axllent/mailpit:v1.32.0
     ports:
       - "127.0.0.1:${KEEL_SMTP_PORT:-1025}:1025"
       - "127.0.0.1:${KEEL_MAIL_UI_PORT:-8025}:8025"
@@ -62,7 +62,7 @@ services:
   # part:pdf
   gotenberg:
     profiles: [pdf]
-    image: gotenberg/gotenberg:8.38.1
+    image: gotenberg/gotenberg:8.39.0
     command:
       - gotenberg
       - --chromium-allow-list=^file:///tmp/.*
@@ -80,7 +80,7 @@ services:
   # part:files
   seaweedfs:
     profiles: [s3]
-    image: chrislusf/seaweedfs:4.48
+    image: chrislusf/seaweedfs:4.50
     command: ["server", "-s3", "-dir=/data"]
     environment:
       WEED_S3_SSE_KEY: keel-local-sse
