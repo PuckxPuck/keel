@@ -3,7 +3,7 @@
 # BUILD_TIME is required: job schedules change only for a build at least as new as the one that wrote them.
 # No HEALTHCHECK: the image has no shell or curl, so the orchestrator probes /readyz and /livez.
 # The build stage runs on the builder's platform and cross-compiles, so multi-arch builds need no emulation.
-FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
